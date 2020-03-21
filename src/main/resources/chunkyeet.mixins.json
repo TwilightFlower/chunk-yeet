@@ -1,0 +1,14 @@
+{
+  "required": true,
+  "package": "io.github.nuclearfarts.chunkyeet.mixin",
+  "compatibilityLevel": "JAVA_8",
+  "mixins": [
+  	"ServerWorldMixin",
+  	"ServerChunkManagerAccessor",
+  	"ThreadedAnvilChunkStorageAccessor",
+  	"ServerLightingProviderAccessor"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
