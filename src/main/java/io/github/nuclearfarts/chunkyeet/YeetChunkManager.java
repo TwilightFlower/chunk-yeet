@@ -88,9 +88,10 @@ public class YeetChunkManager extends ServerChunkManager {
 		return chunk;
 	}
 
+	//getChunkForLight would be a better name
 	@Override
 	public BlockView getChunk(int x, int z) {
-		return (BlockView) getChunk(x, z, null, true);
+		return (BlockView) storage.getLoadedChunk(x, z);
 	}
 	
 	@Override
