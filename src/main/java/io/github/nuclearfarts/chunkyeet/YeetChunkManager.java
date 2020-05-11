@@ -15,13 +15,16 @@ import net.minecraft.entity.Entity;
 import net.minecraft.server.WorldGenerationProgressListener;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ChunkHolder;
+import net.minecraft.server.world.ChunkTicketType;
 import net.minecraft.server.world.ServerChunkManager;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.structure.StructureManager;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.ChunkPos;
+import net.minecraft.util.math.ChunkSectionPos;
 import net.minecraft.util.profiler.Profiler;
 import net.minecraft.world.BlockView;
+import net.minecraft.world.LightType;
 import net.minecraft.world.PersistentStateManager;
 import net.minecraft.world.chunk.Chunk;
 import net.minecraft.world.chunk.ChunkStatus;
@@ -31,6 +34,7 @@ import net.minecraft.world.gen.chunk.ChunkGenerator;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 
+import io.github.nuclearfarts.chunkyeet.mixin.ServerChunkManagerAccessor;
 import io.github.nuclearfarts.chunkyeet.util.UnimplementedThreadExecutor;
 
 public class YeetChunkManager extends ServerChunkManager {
@@ -48,6 +52,7 @@ public class YeetChunkManager extends ServerChunkManager {
 		super(serverWorld, file, dataFixer, structureManager, workerExecutor, chunkGenerator, i,
 				worldGenerationProgressListener, supplier);
 		storage = new YeetChunkStorage(serverWorld, file, dataFixer, structureManager, workerExecutor, new UnimplementedThreadExecutor(""), this, chunkGenerator, worldGenerationProgressListener, supplier, i);
+		((ServerChunkManagerAccessor) this).setThreadedAnvilChunkStorage(null);
 	}
 
 	protected void cacheNewChunk(long pos, Chunk chunk) {
@@ -144,8 +149,36 @@ public class YeetChunkManager extends ServerChunkManager {
 	}
 	
 	@Override
+	public int getTotalChunksLoadedCount() {
+		//System.out.println(storage.getTotalChunksLoadedCount());
+		return storage.getTotalChunksLoadedCount();
+	}
+	
+	@Override
+	public <T> void addTicket(ChunkTicketType<T> chunkTicketType, ChunkPos chunkPos, int i, T object) {
+		if(chunkTicketType == ChunkTicketType.START) {
+			storage.setSpawnPos(chunkPos);
+		}
+	}
+	
+	@Override
 	@Environment(EnvType.CLIENT)
 	public CompletableFuture<Either<Chunk, ChunkHolder.Unloaded>> getChunkFutureSyncOnMainThread(int chunkX, int chunkZ, ChunkStatus leastStatus, boolean create) {
 		return CompletableFuture.completedFuture(Either.left(getChunk(chunkX, chunkZ, leastStatus, create)));
+	}
+	
+	@Override
+	public void onLightUpdate(LightType type, ChunkSectionPos chunkSectionPos) {
+		//FIXME
+	}
+	
+	@Override
+	public boolean executeQueuedTasks() {
+		//super.executeQueuedTasks();
+		return true;
+	}
+	
+	public void save(boolean flush) {
+	      storage.save(flush);
 	}
 }

@@ -21,5 +21,8 @@ public class MiscUtil {
 		chunk.setStatus(ChunkStatus.FULL);
 		return new WorldChunk(world, chunk);
 	}
-
+	
+	public static int getWeirdDistance(int chunkX, int chunkZ, int x, int z) {
+		return Math.max(Math.abs(chunkX - x), Math.abs(chunkZ - z));
+	}
 }

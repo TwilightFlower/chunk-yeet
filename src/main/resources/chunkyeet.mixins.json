@@ -4,9 +4,11 @@
   "compatibilityLevel": "JAVA_8",
   "mixins": [
   	"ServerWorldMixin",
-  	"ServerChunkManagerAccessor",
   	"ThreadedAnvilChunkStorageAccessor",
-  	"ServerLightingProviderAccessor"
+  	"ServerLightingProviderAccessor",
+  	"VersionedChunkStorageAccessor",
+  	"RegionBasedStorageAccessor",
+  	"ServerChunkManagerAccessor"
   ],
   "injectors": {
     "defaultRequire": 1
