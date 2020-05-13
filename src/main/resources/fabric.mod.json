@@ -19,10 +19,6 @@
   "mixins": [
     "chunkyeet.mixins.json"
   ],
-  
-  "entrypoints": {
-  	"main": ["io.github.nuclearfarts.chunkyeet.Entrypoint"]
-  },
 
   "depends": {
     "fabricloader": ">=0.4.0",

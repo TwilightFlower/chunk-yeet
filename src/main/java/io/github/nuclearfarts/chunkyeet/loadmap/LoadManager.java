@@ -18,7 +18,7 @@ import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
 
 //ticketmanager-like thing. but with less mojank.
-public class LoadSourceStorage {
+public class LoadManager {
 	private static final PrevData PLACEHOLDER = new PrevData(0, 0, 0);
 
 	private final Map<LoadSource, PrevData> changedSources = new ConcurrentHashMap<>();
@@ -78,6 +78,18 @@ public class LoadSourceStorage {
 
 	public boolean isLoaded(long pos) {
 		return map.containsKey(pos);
+	}
+	
+	public boolean shouldTickEntities(long pos) {
+		Set<LoadMarker> markers;
+		if((markers = map.get(pos)) != null) {
+			for(LoadMarker marker : markers) {
+				if(marker.processesEntities(pos)) {
+					return true;
+				}
+			}
+		}
+		return false;
 	}
 
 	public Stream<ServerPlayerEntity> getPlayersWatching(long pos) {

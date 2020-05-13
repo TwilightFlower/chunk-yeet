@@ -1,6 +1,9 @@
 package io.github.nuclearfarts.chunkyeet.loadmap;
 
 import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.util.math.ChunkPos;
+
+import io.github.nuclearfarts.chunkyeet.util.MiscUtil;
 
 final class LoadMarker {
 	final LoadSource source;
@@ -17,6 +20,10 @@ final class LoadMarker {
 	
 	ServerPlayerEntity getPlayer() {
 		return source.player;
+	}
+	
+	boolean processesEntities(long pos) {
+		return source.radius - MiscUtil.getWeirdDistance(ChunkPos.getPackedX(pos), ChunkPos.getPackedZ(pos), source.x, source.z) >= 2;
 	}
 	
 	public int hashCode() {

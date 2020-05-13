@@ -8,7 +8,8 @@
   	"ServerLightingProviderAccessor",
   	"VersionedChunkStorageAccessor",
   	"RegionBasedStorageAccessor",
-  	"ServerChunkManagerAccessor"
+  	"ServerChunkManagerAccessor",
+  	"ThreadedAnvilChunkStorageMixin"
   ],
   "injectors": {
     "defaultRequire": 1

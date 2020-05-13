@@ -12,6 +12,7 @@ import com.mojang.datafixers.DataFixer;
 import com.mojang.datafixers.util.Either;
 
 import net.minecraft.entity.Entity;
+import net.minecraft.network.Packet;
 import net.minecraft.server.WorldGenerationProgressListener;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ChunkHolder;
@@ -22,6 +23,7 @@ import net.minecraft.structure.StructureManager;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.ChunkPos;
 import net.minecraft.util.math.ChunkSectionPos;
+import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.profiler.Profiler;
 import net.minecraft.world.BlockView;
 import net.minecraft.world.LightType;
@@ -30,11 +32,13 @@ import net.minecraft.world.chunk.Chunk;
 import net.minecraft.world.chunk.ChunkStatus;
 import net.minecraft.world.chunk.WorldChunk;
 import net.minecraft.world.gen.chunk.ChunkGenerator;
+import net.minecraft.world.poi.PointOfInterestStorage;
 
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 
 import io.github.nuclearfarts.chunkyeet.mixin.ServerChunkManagerAccessor;
+import io.github.nuclearfarts.chunkyeet.mixin.ThreadedAnvilChunkStorageAccessor;
 import io.github.nuclearfarts.chunkyeet.util.UnimplementedThreadExecutor;
 
 public class YeetChunkManager extends ServerChunkManager {
@@ -42,7 +46,7 @@ public class YeetChunkManager extends ServerChunkManager {
 	protected final ReadWriteLock chunkCacheLock = new ReentrantReadWriteLock();
 	protected final long[] chunkPosCache = new long[4];
 	protected final Chunk[] chunkCache = new Chunk[4];
-	
+
 	protected final YeetChunkStorage storage;
 
 	public YeetChunkManager(ServerWorld serverWorld, File file, DataFixer dataFixer, StructureManager structureManager,
@@ -51,7 +55,9 @@ public class YeetChunkManager extends ServerChunkManager {
 			Supplier<PersistentStateManager> supplier) {
 		super(serverWorld, file, dataFixer, structureManager, workerExecutor, chunkGenerator, i,
 				worldGenerationProgressListener, supplier);
-		storage = new YeetChunkStorage(serverWorld, file, dataFixer, structureManager, workerExecutor, new UnimplementedThreadExecutor(""), this, chunkGenerator, worldGenerationProgressListener, supplier, i);
+		storage = new YeetChunkStorage(serverWorld, file, dataFixer, structureManager, workerExecutor,
+				new UnimplementedThreadExecutor(""), this, chunkGenerator, worldGenerationProgressListener, supplier,
+				i);
 		((ServerChunkManagerAccessor) this).setThreadedAnvilChunkStorage(null);
 	}
 
@@ -93,17 +99,17 @@ public class YeetChunkManager extends ServerChunkManager {
 		return chunk;
 	}
 
-	//getChunkForLight would be a better name
+	// getChunkForLight would be a better name
 	@Override
 	public BlockView getChunk(int x, int z) {
 		return (BlockView) storage.getLoadedChunk(x, z);
 	}
-	
+
 	@Override
 	public WorldChunk getWorldChunk(int x, int z) {
 		return (WorldChunk) getChunk(x, z, null, true);
 	}
-	
+
 	protected Chunk getNonCachedChunk(int x, int z, boolean create) {
 		WorldChunk chunk = storage.getLoadedChunk(x, z);
 		if (create && chunk == null) {
@@ -111,74 +117,104 @@ public class YeetChunkManager extends ServerChunkManager {
 		}
 		return chunk;
 	}
-	
+
 	@Override
 	public void applyViewDistance(int dist) {
 		storage.setViewDistance(dist);
 	}
-	
+
 	@Override
 	public void updateCameraPosition(ServerPlayerEntity player) {
 		storage.updateCameraPosition(player);
 	}
-	
+
 	@Override
 	public void tick(BooleanSupplier shouldKeepTicking) {
 		storage.tick();
 	}
-	
+
 	@Override
 	public void loadEntity(Entity e) {
 		storage.loadEntity(e);
 	}
-	
+
 	@Override
 	public void unloadEntity(Entity e) {
 		storage.unloadEntity(e);
 	}
-	
+
 	@Override
 	public void markForUpdate(BlockPos pos) {
 		ChunkPos cPos = new ChunkPos(pos);
 		storage.blockUpdate(cPos.x, cPos.z, pos);
 	}
-	
+
 	@Override
 	public boolean isChunkLoaded(int x, int z) {
 		return storage.isChunkLoaded(x, z);
 	}
-	
+
 	@Override
 	public int getTotalChunksLoadedCount() {
-		//System.out.println(storage.getTotalChunksLoadedCount());
+		// System.out.println(storage.getTotalChunksLoadedCount());
 		return storage.getTotalChunksLoadedCount();
 	}
-	
+
 	@Override
 	public <T> void addTicket(ChunkTicketType<T> chunkTicketType, ChunkPos chunkPos, int i, T object) {
-		if(chunkTicketType == ChunkTicketType.START) {
+		if (chunkTicketType == ChunkTicketType.START) {
 			storage.setSpawnPos(chunkPos);
 		}
 	}
-	
+
 	@Override
 	@Environment(EnvType.CLIENT)
-	public CompletableFuture<Either<Chunk, ChunkHolder.Unloaded>> getChunkFutureSyncOnMainThread(int chunkX, int chunkZ, ChunkStatus leastStatus, boolean create) {
+	public CompletableFuture<Either<Chunk, ChunkHolder.Unloaded>> getChunkFutureSyncOnMainThread(int chunkX, int chunkZ,
+			ChunkStatus leastStatus, boolean create) {
 		return CompletableFuture.completedFuture(Either.left(getChunk(chunkX, chunkZ, leastStatus, create)));
 	}
-	
+
+	public void sendToNearbyPlayers(Entity entity, Packet<?> packet) {
+		this.storage.sendToNearbyPlayers(entity, packet);
+	}
+
+	public void sendToOtherNearbyPlayers(Entity entity, Packet<?> packet) {
+		this.storage.sendToOtherNearbyPlayers(entity, packet);
+	}
+
 	@Override
 	public void onLightUpdate(LightType type, ChunkSectionPos chunkSectionPos) {
-		//FIXME
+		// FIXME
 	}
-	
+
 	@Override
 	public boolean executeQueuedTasks() {
-		//super.executeQueuedTasks();
+		// super.executeQueuedTasks();
 		return true;
 	}
-	
+
 	public void save(boolean flush) {
-	      storage.save(flush);
+		storage.save(flush);
+	}
+
+	public int getLoadedChunkCount() {
+		return this.storage.getLoadedChunkCount();
+	}
+
+	public boolean shouldTickEntity(Entity entity) {
+		long l = ChunkPos.toLong(entity.chunkX, entity.chunkZ);
+		return storage.ticksEntities(l);
+	}
+
+	public boolean shouldTickChunk(ChunkPos pos) {
+		return storage.isChunkLoaded(pos.x, pos.z);
+	}
+
+	public boolean shouldTickBlock(BlockPos pos) {
+		return storage.isChunkLoaded(pos.getX() >> 4, pos.getZ() >> 4);
+	}
+
+	public PointOfInterestStorage getPointOfInterestStorage() {
+		return ((ThreadedAnvilChunkStorageAccessor) storage).getPointOfInterestStorage();
 	}
 }

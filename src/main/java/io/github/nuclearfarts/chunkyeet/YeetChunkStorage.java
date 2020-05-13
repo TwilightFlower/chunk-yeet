@@ -3,10 +3,9 @@ package io.github.nuclearfarts.chunkyeet;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
@@ -17,6 +16,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BooleanSupplier;
+import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -24,7 +24,6 @@ import java.util.stream.Stream;
 import com.mojang.datafixers.DataFixer;
 import com.mojang.datafixers.util.Either;
 
-import org.apache.commons.lang3.mutable.MutableBoolean;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.entity.Entity;
 import net.minecraft.nbt.CompoundTag;
@@ -34,13 +33,13 @@ import net.minecraft.network.packet.s2c.play.BlockUpdateS2CPacket;
 import net.minecraft.network.packet.s2c.play.ChunkDataS2CPacket;
 import net.minecraft.network.packet.s2c.play.ChunkDeltaUpdateS2CPacket;
 import net.minecraft.network.packet.s2c.play.ChunkRenderDistanceCenterS2CPacket;
-import net.minecraft.network.packet.s2c.play.LightUpdateS2CPacket;
 import net.minecraft.server.WorldGenerationProgressListener;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ChunkHolder;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.server.world.ThreadedAnvilChunkStorage;
 import net.minecraft.structure.StructureManager;
+import net.minecraft.util.TypeFilterableList;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.ChunkPos;
 import net.minecraft.util.math.MathHelper;
@@ -55,8 +54,6 @@ import net.minecraft.world.chunk.ProtoChunk;
 import net.minecraft.world.chunk.UpgradeData;
 import net.minecraft.world.chunk.WorldChunk;
 import net.minecraft.world.gen.chunk.ChunkGenerator;
-import net.minecraft.world.storage.RegionBasedStorage;
-
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 
@@ -64,29 +61,27 @@ import io.github.nuclearfarts.chunkyeet.gen.SimpleFlatGenerator;
 import io.github.nuclearfarts.chunkyeet.gen.SimplifiedChunkGenerator;
 import io.github.nuclearfarts.chunkyeet.loadmap.LoadManagerTickResult;
 import io.github.nuclearfarts.chunkyeet.loadmap.LoadSource;
-import io.github.nuclearfarts.chunkyeet.loadmap.LoadSourceStorage;
-import io.github.nuclearfarts.chunkyeet.mixin.RegionBasedStorageAccessor;
+import io.github.nuclearfarts.chunkyeet.loadmap.LoadManager;
 import io.github.nuclearfarts.chunkyeet.mixin.ServerLightingProviderAccessor;
 import io.github.nuclearfarts.chunkyeet.mixin.ThreadedAnvilChunkStorageAccessor;
-import io.github.nuclearfarts.chunkyeet.mixin.VersionedChunkStorageAccessor;
 import io.github.nuclearfarts.chunkyeet.util.MiscUtil;
 import it.unimi.dsi.fastutil.longs.LongIterator;
 
 public class YeetChunkStorage extends ThreadedAnvilChunkStorage {
 	protected static final LoadSource SPAWNCHUNKS_LOAD_SOURCE = new LoadSource(10);
-	
+
 	private final Map<Long, CompletableFuture<ChunkMapEntry>> chunks = new ConcurrentHashMap<>();
 	private final Map<ServerPlayerEntity, LoadSource> playerLoadSources = new HashMap<>();
 	private final Queue<ChunkMapEntry> newChunks = new ConcurrentLinkedQueue<>();
 	private final Lock chunkIOLock = new ReentrantLock();
-	private final RegionBasedStorage diskStorage;
-	
+	// private final RegionBasedStorage diskStorage;
+
 	protected int loaded;
 	protected int viewDistance;
 	protected final ServerWorld world;
 	protected final StructureManager structureManager;
 	protected final WorldGenerationProgressListener progressListener;
-	protected final LoadSourceStorage loadThing = new LoadSourceStorage();
+	protected final LoadManager loadManager = new LoadManager();
 	protected ChunkPos spawnPos;
 
 	protected final SimplifiedChunkGenerator generator = new SimpleFlatGenerator();
@@ -101,12 +96,12 @@ public class YeetChunkStorage extends ThreadedAnvilChunkStorage {
 		this.world = world;
 		this.structureManager = structureManager;
 		this.progressListener = worldGenerationProgressListener;
-		try {
-			((VersionedChunkStorageAccessor) this).getWorker().close();
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
-		diskStorage = RegionBasedStorageAccessor.create(new File(world.getDimension().getType().getSaveDirectory(file), "region"));
+		/*
+		 * try { ((VersionedChunkStorageAccessor) this).getWorker().close(); } catch
+		 * (IOException e) { e.printStackTrace(); } diskStorage =
+		 * RegionBasedStorageAccessor.create(new
+		 * File(world.getDimension().getType().getSaveDirectory(file), "region"));
+		 */
 		((ThreadedAnvilChunkStorageAccessor) this).setChunkHolders(null);
 		((ThreadedAnvilChunkStorageAccessor) this).setCurrentChunkHolders(null);
 		((ThreadedAnvilChunkStorageAccessor) this).setMainThreadExecutor(null);
@@ -124,20 +119,17 @@ public class YeetChunkStorage extends ThreadedAnvilChunkStorage {
 	}
 
 	private void writeChunk(Chunk chunk) {
-		ChunkPos pos = chunk.getPos();
-		chunkIOLock.lock();
-		((ThreadedAnvilChunkStorageAccessor) this).getPointOfInterestStorage().method_20436(pos);
-		if (chunk.needsSaving()) {
-			chunk.setLastSaveTime(this.world.getTime());
-			chunk.setShouldSave(false);
-			try {
-				((RegionBasedStorageAccessor) (Object) diskStorage).invokeWrite(pos, ChunkSerializer.serialize(world, chunk));
-			} catch (IOException e) {
-				e.printStackTrace();
-			}
-		}
-		chunkIOLock.unlock();
-		
+		/*
+		 * ChunkPos pos = chunk.getPos(); chunkIOLock.lock();
+		 * ((ThreadedAnvilChunkStorageAccessor)
+		 * this).getPointOfInterestStorage().method_20436(pos); if (chunk.needsSaving())
+		 * { chunk.setLastSaveTime(this.world.getTime()); chunk.setShouldSave(false);
+		 * try { ((ThreadedAnvilChunkStorageAccessor) this).invokeSave(chunk);
+		 * //((RegionBasedStorageAccessor) (Object) diskStorage).invokeWrite(pos,
+		 * ChunkSerializer.serialize(world, chunk)); } catch (IOException e) {
+		 * e.printStackTrace(); } } chunkIOLock.unlock();
+		 */
+		((ThreadedAnvilChunkStorageAccessor) this).invokeSave(chunk);
 	}
 
 	protected boolean updateHolderMap() {
@@ -174,7 +166,7 @@ public class YeetChunkStorage extends ThreadedAnvilChunkStorage {
 
 	public void setViewDistance(int watchDistance) {
 		viewDistance = watchDistance;
-		
+
 	}
 
 	public void updateCameraPosition(ServerPlayerEntity player) {
@@ -185,13 +177,9 @@ public class YeetChunkStorage extends ThreadedAnvilChunkStorage {
 		if (player.chunkX != lastChunkX || player.chunkZ != lastChunkZ) {
 			System.out.println("Player changed chunk");
 			sendChunkPositionPacket(player);
-			loadThing.updateSource(playerLoadSources.get(player), player.chunkX, player.chunkZ);
+			loadManager.updateSource(playerLoadSources.get(player), player.chunkX, player.chunkZ);
 		}
 
-	}
-
-	private static int getWeirdDistance(int chunkX, int chunkZ, int x, int z) {
-		return Math.max(Math.abs(chunkX - x), Math.abs(chunkZ - z));
 	}
 
 	public void loadEntity(Entity entity) {
@@ -199,15 +187,17 @@ public class YeetChunkStorage extends ThreadedAnvilChunkStorage {
 			ServerPlayerEntity player = (ServerPlayerEntity) entity;
 			LoadSource loadSource = new LoadSource(player, viewDistance);
 			playerLoadSources.put(player, loadSource);
-			loadThing.addSource(loadSource, player.chunkX, player.chunkZ);
+			loadManager.addSource(loadSource, player.chunkX, player.chunkZ);
 			sendChunkPositionPacket((ServerPlayerEntity) entity);
 		}
+		super.loadEntity(entity);
 	}
 
 	public void unloadEntity(Entity entity) {
 		if (entity instanceof ServerPlayerEntity) {
-			loadThing.removeSource(playerLoadSources.remove(entity));
+			loadManager.removeSource(playerLoadSources.remove(entity));
 		}
+		super.unloadEntity(entity);
 	}
 
 	@Override
@@ -216,80 +206,81 @@ public class YeetChunkStorage extends ThreadedAnvilChunkStorage {
 	}
 
 	public void tick() {
-		LoadManagerTickResult loadTickResult = loadThing.tick();
-		while(!newChunks.isEmpty()) {
+		LoadManagerTickResult loadTickResult = loadManager.tick();
+		while (!newChunks.isEmpty()) {
 			ChunkMapEntry entry = newChunks.poll();
-			if(loadThing.isLoaded(entry.pos)) {
+			if (loadManager.isLoaded(entry.pos)) {
 				initChunk(entry);
 			} else {
 				System.out.println("chunk at " + entry.objectPos + " loaded without being in load manager");
-				loaded++; //don't get the var out of sync
+				loaded++; // don't get the var out of sync
 				loadTickResult.getUnloads().add(entry.pos);
 			}
 		}
-		for(LongIterator iter = loadTickResult.getLoads().iterator(); iter.hasNext();) {
+		for (LongIterator iter = loadTickResult.getLoads().iterator(); iter.hasNext();) {
 			long l = iter.nextLong();
 			loadChunkOffThread(l);
 		}
 		getLightProvider().tick();
-		
-		for(LongIterator iter = loadTickResult.getPlayerUpdates().iterator(); iter.hasNext();) {
+		super.tickPlayerMovement();
+
+		for (LongIterator iter = loadTickResult.getPlayerUpdates().iterator(); iter.hasNext();) {
 			long update = iter.nextLong();
 			CompletableFuture<ChunkMapEntry> chunkFuture = chunks.get(update);
-			if(chunkFuture != null && chunkFuture.isDone()) {
+			if (chunkFuture != null && chunkFuture.isDone()) {
 				chunkFuture.join().updatePlayers();
 			}
 		}
-		
-		for(LongIterator iter = loadTickResult.getUnloads().iterator(); iter.hasNext();) {
+
+		for (LongIterator iter = loadTickResult.getUnloads().iterator(); iter.hasNext();) {
 			long unload = iter.nextLong();
 			CompletableFuture<ChunkMapEntry> chunkFuture = chunks.remove(unload);
-			if(chunkFuture != null && chunkFuture.isDone()) {
+			if (chunkFuture != null && chunkFuture.isDone()) {
 				ChunkMapEntry chunk = chunkFuture.join();
 				chunk.chunk.setLoadedToWorld(false);
 				loaded--;
+				writeChunk(chunk.chunk);
 				world.unloadEntities(chunk.chunk);
 				((ServerLightingProviderAccessor) getLightProvider()).invokeUpdateChunkStatus(chunk.objectPos);
 				getLightProvider().tick();
-				writeChunk(chunk.chunk);
 				progressListener.setChunkStatus(chunk.objectPos, null);
 			}
 		}
-		
-		chunks.values().stream().filter(CompletableFuture::isDone).map(CompletableFuture::join).forEach(ChunkMapEntry::sendUpdates);
+
+		chunks.values().stream().filter(CompletableFuture::isDone).map(CompletableFuture::join)
+				.forEach(ChunkMapEntry::sendUpdates);
 	}
-	
+
+	public boolean ticksEntities(long pos) {
+		return loadManager.shouldTickEntities(pos);
+	}
+
 	public void setSpawnPos(ChunkPos pos) {
 		System.out.println("set spawn pos to " + pos);
 		progressListener.start(pos);
-		if(spawnPos == null) {
-			loadThing.addSource(SPAWNCHUNKS_LOAD_SOURCE, pos.x, pos.z);
+		if (spawnPos == null) {
+			loadManager.addSource(SPAWNCHUNKS_LOAD_SOURCE, pos.x, pos.z);
 		} else {
-			loadThing.updateSource(SPAWNCHUNKS_LOAD_SOURCE, pos.x, pos.z);
+			loadManager.updateSource(SPAWNCHUNKS_LOAD_SOURCE, pos.x, pos.z);
 		}
 		spawnPos = pos;
 	}
 
 	public WorldChunk getChunk(int x, int z) {
 		long pos = ChunkPos.toLong(x, z);
-		MutableBoolean flag = new MutableBoolean(false);
 		CompletableFuture<ChunkMapEntry> chunkFuture = chunks.computeIfAbsent(pos, l -> {
-			flag.setTrue();
-			return new CompletableFuture<>();
+			CompletableFuture<ChunkMapEntry> future = new CompletableFuture<>();
+			ChunkMapEntry chunk = new ChunkMapEntry(loadChunk(l), l);
+			future.complete(chunk);
+			newChunks.add(chunk);
+			return future;
 		});
-		if(flag.booleanValue()) {
-			ChunkMapEntry chunk = new ChunkMapEntry(loadChunk(pos), pos);
-			chunkFuture.complete(chunk);
-			newChunks.add(chunk); // we might be offthread!
-			return chunk.chunk;
-		} else {
-			return chunkFuture.join().chunk;
-		}
+		return chunkFuture.join().chunk;
 	}
 
 	public WorldChunk getLoadedChunk(int x, int z) {
 		CompletableFuture<ChunkMapEntry> future;
-		if((future = chunks.get(ChunkPos.toLong(x, z))) != null && future.isDone()) {
+		if ((future = chunks.get(ChunkPos.toLong(x, z))) != null && future.isDone()) {
 			return future.join().chunk;
 		}
 		return null;
@@ -303,12 +294,20 @@ public class YeetChunkStorage extends ThreadedAnvilChunkStorage {
 		return chunks.containsKey(ChunkPos.toLong(x, z));
 	}
 
-	private CompletableFuture<ChunkMapEntry> loadChunkOffThread(int x, int z) {
-		return loadChunkOffThread(ChunkPos.toLong(x, z));
+	protected IntSupplier getCompletedLevelSupplier(long pos) {
+		return () -> 0;
 	}
-	
+
+	public void sendToOtherNearbyPlayers(Entity entity, Packet<?> packet) {
+		super.sendToOtherNearbyPlayers(entity, packet);
+	}
+
+	public void sendToNearbyPlayers(Entity entity, Packet<?> packet) {
+		super.sendToNearbyPlayers(entity, packet);
+	}
+
 	private CompletableFuture<ChunkMapEntry> loadChunkOffThread(long pos) {
-		//computeIfAbsent is guaranteed to run only once, so no double gens
+		// computeIfAbsent is guaranteed to run only once, so no double gens
 		return chunks.computeIfAbsent(pos, l -> CompletableFuture.supplyAsync(() -> {
 			ChunkMapEntry chunk = new ChunkMapEntry(loadChunk(l), l);
 			newChunks.add(chunk);
@@ -317,20 +316,13 @@ public class YeetChunkStorage extends ThreadedAnvilChunkStorage {
 	}
 
 	private WorldChunk loadChunk(long lpos) {
-		if(!loadThing.isLoaded(lpos)) {
-			System.out.println(new ChunkPos(lpos) + "loaded but not in load manager");
-		}
 		try {
 			ChunkPos pos = new ChunkPos(lpos);
 			chunkIOLock.lock();
-			CompoundTag tag = diskStorage.getTagAt(pos);
+			CompoundTag tag = ((ThreadedAnvilChunkStorageAccessor) this).invokeGetUpdatedChunkTag(pos);
 			if (tag != null) {
-				CompoundTag lvl = tag.getCompound("Level");
-				ChunkPos verifyPos = new ChunkPos(lvl.getInt("xPos"), lvl.getInt("zPos"));
-				if(!verifyPos.equals(pos)) {
-					System.out.println("Chunk stored at " + pos + " has pos value of " + verifyPos + "! Your save is probably corrupt!");
-				}
-				ProtoChunk chunk = ChunkSerializer.deserialize(world, structureManager, getPointOfInterestStorage(), pos, tag);
+				ProtoChunk chunk = ChunkSerializer.deserialize(world, structureManager, getPointOfInterestStorage(),
+						pos, tag);
 				chunkIOLock.unlock();
 				return MiscUtil.ensureFull(world, chunk);
 			} else {
@@ -345,10 +337,31 @@ public class YeetChunkStorage extends ThreadedAnvilChunkStorage {
 	}
 
 	private void initChunk(ChunkMapEntry entry) {
-		System.out.println("load " + entry.objectPos);
+		// System.out.println("load " + entry.objectPos)
+		System.out.println("Loading " + entry.objectPos);
+		if(entry.x == 16 && entry.z == 10) {
+			System.out.println("16 10");
+		}
 		WorldChunk chunk = entry.chunk;
 		chunk.setLoadedToWorld(true);
-		chunk.setLevelTypeProvider(() -> ChunkHolder.LevelType.ENTITY_TICKING);
+		chunk.setLevelTypeProvider(() -> loadManager.shouldTickEntities(entry.pos) ? ChunkHolder.LevelType.ENTITY_TICKING : ChunkHolder.LevelType.TICKING);
+		chunk.loadToWorld();
+		world.addBlockEntities(chunk.getBlockEntities().values());
+		List<Entity> toRemove = null;
+		for(TypeFilterableList<Entity> list : chunk.getEntitySectionArray()) {
+			for(Entity e : list) {
+				System.out.println(e);
+				if(!world.loadEntity(e)) {
+					System.out.println("could not load entity " + e);
+					(toRemove == null ? (toRemove = new ArrayList<>()) : toRemove).add(e);
+				}
+			}
+		}
+		if(toRemove != null) {
+			for(Entity e : toRemove) {
+				chunk.remove(e);
+			}
+		}
 		getLightProvider().light(chunk, false);
 		entry.updatePlayers();
 		loaded++;
@@ -358,7 +371,7 @@ public class YeetChunkStorage extends ThreadedAnvilChunkStorage {
 	private void sendChunkPositionPacket(ServerPlayerEntity player) {
 		player.networkHandler.sendPacket(new ChunkRenderDistanceCenterS2CPacket(player.chunkX, player.chunkZ));
 	}
-	
+
 	private class ChunkMapEntry {
 		private Set<ServerPlayerEntity> players = new HashSet<>();
 		private int blockUpdates = 0;
@@ -378,29 +391,34 @@ public class YeetChunkStorage extends ThreadedAnvilChunkStorage {
 			x = objectPos.x;
 			z = objectPos.z;
 		}
-		
+
 		public void updatePlayers() {
-			Set<ServerPlayerEntity> currentPlayers = loadThing.getPlayersWatching(pos).collect(Collectors.toCollection(HashSet::new));
-			for(ServerPlayerEntity p : currentPlayers) {
-				if(!players.contains(p)) {
+			Set<ServerPlayerEntity> currentPlayers = loadManager.getPlayersWatching(pos)
+					.collect(Collectors.toCollection(HashSet::new));
+			for (ServerPlayerEntity p : currentPlayers) {
+				if (!players.contains(p)) {
 					playerLoad(p);
 				}
 			}
-			for(ServerPlayerEntity p : players) {
-				if(!currentPlayers.contains(p)) {
+			for (ServerPlayerEntity p : players) {
+				if (!currentPlayers.contains(p)) {
 					playerUnload(p);
 				}
 			}
 			players = currentPlayers;
 		}
-		
+
 		public Stream<ServerPlayerEntity> getPlayerStream() {
 			return players.stream();
 		}
 
 		public void playerLoad(ServerPlayerEntity player) {
-			player.sendInitialChunkPackets(objectPos, new ChunkDataS2CPacket(chunk, 65535),
-					new LightUpdateS2CPacket(objectPos, world.getLightingProvider()));
+			((ThreadedAnvilChunkStorageAccessor) YeetChunkStorage.this).invokeSendChunkDataPackets(player,
+					new Packet<?>[2], chunk);
+			/*
+			 * player.sendInitialChunkPackets(objectPos, new ChunkDataS2CPacket(chunk,
+			 * 65535), new LightUpdateS2CPacket(objectPos, world.getLightingProvider()));
+			 */
 		}
 
 		public void playerUnload(ServerPlayerEntity player) {
@@ -464,9 +482,9 @@ public class YeetChunkStorage extends ThreadedAnvilChunkStorage {
 
 		}
 	}
-	
+
 	public void close() throws IOException {
-		diskStorage.close();
+		// diskStorage.close();
 		super.close();
 	}
 }
