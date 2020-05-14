@@ -9,7 +9,9 @@
   	"VersionedChunkStorageAccessor",
   	"RegionBasedStorageAccessor",
   	"ServerChunkManagerAccessor",
-  	"ThreadedAnvilChunkStorageMixin"
+  	"ThreadedAnvilChunkStorageMixin",
+  	"EntityTrackerAccessor",
+  	"ServerLightProviderMixin"
   ],
   "injectors": {
     "defaultRequire": 1

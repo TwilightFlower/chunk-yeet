@@ -23,7 +23,15 @@ final class LoadMarker {
 	}
 	
 	boolean processesEntities(long pos) {
-		return source.radius - MiscUtil.getWeirdDistance(ChunkPos.getPackedX(pos), ChunkPos.getPackedZ(pos), source.x, source.z) >= 2;
+		return distanceFromEdge(pos) >= 2;
+	}
+	
+	int distanceFromEdge(long pos) {
+		return source.radius - distanceFromSource(pos);
+	}
+	
+	int distanceFromSource(long pos) {
+		return MiscUtil.getWeirdDistance(ChunkPos.getPackedX(pos), ChunkPos.getPackedZ(pos), source.x, source.z);
 	}
 	
 	public int hashCode() {

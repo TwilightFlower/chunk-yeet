@@ -23,7 +23,6 @@ import net.minecraft.structure.StructureManager;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.ChunkPos;
 import net.minecraft.util.math.ChunkSectionPos;
-import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.profiler.Profiler;
 import net.minecraft.world.BlockView;
 import net.minecraft.world.LightType;
@@ -184,7 +183,7 @@ public class YeetChunkManager extends ServerChunkManager {
 
 	@Override
 	public void onLightUpdate(LightType type, ChunkSectionPos chunkSectionPos) {
-		// FIXME
+		storage.onLightUpdate(type, chunkSectionPos);
 	}
 
 	@Override

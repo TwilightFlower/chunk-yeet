@@ -33,18 +33,22 @@ import net.minecraft.network.packet.s2c.play.BlockUpdateS2CPacket;
 import net.minecraft.network.packet.s2c.play.ChunkDataS2CPacket;
 import net.minecraft.network.packet.s2c.play.ChunkDeltaUpdateS2CPacket;
 import net.minecraft.network.packet.s2c.play.ChunkRenderDistanceCenterS2CPacket;
+import net.minecraft.network.packet.s2c.play.LightUpdateS2CPacket;
 import net.minecraft.server.WorldGenerationProgressListener;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ChunkHolder;
+import net.minecraft.server.world.LevelPrioritizedQueue;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.server.world.ThreadedAnvilChunkStorage;
 import net.minecraft.structure.StructureManager;
 import net.minecraft.util.TypeFilterableList;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.ChunkPos;
+import net.minecraft.util.math.ChunkSectionPos;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.thread.ThreadExecutor;
 import net.minecraft.world.ChunkSerializer;
+import net.minecraft.world.LightType;
 import net.minecraft.world.PersistentStateManager;
 import net.minecraft.world.World;
 import net.minecraft.world.chunk.Chunk;
@@ -62,6 +66,7 @@ import io.github.nuclearfarts.chunkyeet.gen.SimplifiedChunkGenerator;
 import io.github.nuclearfarts.chunkyeet.loadmap.LoadManagerTickResult;
 import io.github.nuclearfarts.chunkyeet.loadmap.LoadSource;
 import io.github.nuclearfarts.chunkyeet.loadmap.LoadManager;
+import io.github.nuclearfarts.chunkyeet.mixin.EntityTrackerAccessor;
 import io.github.nuclearfarts.chunkyeet.mixin.ServerLightingProviderAccessor;
 import io.github.nuclearfarts.chunkyeet.mixin.ThreadedAnvilChunkStorageAccessor;
 import io.github.nuclearfarts.chunkyeet.util.MiscUtil;
@@ -170,6 +175,15 @@ public class YeetChunkStorage extends ThreadedAnvilChunkStorage {
 	}
 
 	public void updateCameraPosition(ServerPlayerEntity player) {
+
+		for (EntityTracker t : ((ThreadedAnvilChunkStorageAccessor) this).getEntityTrackers().values()) {
+			if (((EntityTrackerAccessor) t).getEntity() == player) {
+				t.updateCameraPosition(this.world.getPlayers());
+			} else {
+				t.updateCameraPosition(player);
+			}
+		}
+
 		int lastChunkX = player.chunkX;
 		int lastChunkZ = player.chunkZ;
 		player.chunkX = MathHelper.floor(player.getX()) >> 4;
@@ -295,7 +309,7 @@ public class YeetChunkStorage extends ThreadedAnvilChunkStorage {
 	}
 
 	protected IntSupplier getCompletedLevelSupplier(long pos) {
-		return () -> 0;
+		return () ->  Math.min(loadManager.getMinDistFromSource(pos), LevelPrioritizedQueue.LEVEL_COUNT);
 	}
 
 	public void sendToOtherNearbyPlayers(Entity entity, Packet<?> packet) {
@@ -304,6 +318,13 @@ public class YeetChunkStorage extends ThreadedAnvilChunkStorage {
 
 	public void sendToNearbyPlayers(Entity entity, Packet<?> packet) {
 		super.sendToNearbyPlayers(entity, packet);
+	}
+
+	public void onLightUpdate(LightType type, ChunkSectionPos pos) {
+		CompletableFuture<ChunkMapEntry> f;
+		if ((f = chunks.get(ChunkPos.toLong(pos.getX(), pos.getZ()))) != null) {
+			f.join().markForLightUpdate(type, pos.getY());
+		}
 	}
 
 	private CompletableFuture<ChunkMapEntry> loadChunkOffThread(long pos) {
@@ -339,26 +360,28 @@ public class YeetChunkStorage extends ThreadedAnvilChunkStorage {
 	private void initChunk(ChunkMapEntry entry) {
 		// System.out.println("load " + entry.objectPos)
 		System.out.println("Loading " + entry.objectPos);
-		if(entry.x == 16 && entry.z == 10) {
+		if (entry.x == 16 && entry.z == 10) {
 			System.out.println("16 10");
 		}
 		WorldChunk chunk = entry.chunk;
 		chunk.setLoadedToWorld(true);
-		chunk.setLevelTypeProvider(() -> loadManager.shouldTickEntities(entry.pos) ? ChunkHolder.LevelType.ENTITY_TICKING : ChunkHolder.LevelType.TICKING);
+		chunk.setLevelTypeProvider(
+				() -> loadManager.shouldTickEntities(entry.pos) ? ChunkHolder.LevelType.ENTITY_TICKING
+						: ChunkHolder.LevelType.TICKING);
 		chunk.loadToWorld();
 		world.addBlockEntities(chunk.getBlockEntities().values());
 		List<Entity> toRemove = null;
-		for(TypeFilterableList<Entity> list : chunk.getEntitySectionArray()) {
-			for(Entity e : list) {
+		for (TypeFilterableList<Entity> list : chunk.getEntitySectionArray()) {
+			for (Entity e : list) {
 				System.out.println(e);
-				if(!world.loadEntity(e)) {
+				if (!world.loadEntity(e)) {
 					System.out.println("could not load entity " + e);
 					(toRemove == null ? (toRemove = new ArrayList<>()) : toRemove).add(e);
 				}
 			}
 		}
-		if(toRemove != null) {
-			for(Entity e : toRemove) {
+		if (toRemove != null) {
+			for (Entity e : toRemove) {
 				chunk.remove(e);
 			}
 		}
@@ -376,6 +399,9 @@ public class YeetChunkStorage extends ThreadedAnvilChunkStorage {
 		private Set<ServerPlayerEntity> players = new HashSet<>();
 		private int blockUpdates = 0;
 		private int sectionUpdateMask = 0;
+		private int skyLightUpdateBits;
+		private int blockLightUpdateBits;
+		private int lightSentWithBlocksBits;
 		private short[] blockUpdatePositions = new short[64];
 
 		public final WorldChunk chunk;
@@ -426,6 +452,27 @@ public class YeetChunkStorage extends ThreadedAnvilChunkStorage {
 		}
 
 		public void sendUpdates() {
+			if (blockUpdates == 64) {
+				lightSentWithBlocksBits = -1;
+			}
+
+			int n;
+			int o;
+			if (this.skyLightUpdateBits != 0 || this.blockLightUpdateBits != 0) {
+				sendPacketToPlayers(new LightUpdateS2CPacket(objectPos, getLightProvider(),
+						this.skyLightUpdateBits & ~this.lightSentWithBlocksBits,
+						this.blockLightUpdateBits & ~this.lightSentWithBlocksBits));
+				n = this.skyLightUpdateBits & this.lightSentWithBlocksBits;
+				o = this.blockLightUpdateBits & this.lightSentWithBlocksBits;
+				if (n != 0 || o != 0) {
+					sendPacketToPlayers(new LightUpdateS2CPacket(objectPos, getLightProvider(), n, o));
+				}
+
+				this.skyLightUpdateBits = 0;
+				this.blockLightUpdateBits = 0;
+				this.lightSentWithBlocksBits &= ~(this.skyLightUpdateBits & this.blockLightUpdateBits);
+			}
+
 			if (this.blockUpdates == 1) {
 				int x = (blockUpdatePositions[0] >> 12 & 15) + this.x * 16;
 				int y = blockUpdatePositions[0] & 255;
@@ -462,6 +509,15 @@ public class YeetChunkStorage extends ThreadedAnvilChunkStorage {
 					}
 				}
 				blockUpdatePositions[blockUpdates++] = encodedPos;
+			}
+		}
+
+		public void markForLightUpdate(LightType type, int y) {
+			chunk.setShouldSave(true);
+			if (type == LightType.SKY) {
+				skyLightUpdateBits |= 1 << y - -1;
+			} else {
+				blockLightUpdateBits |= 1 << y - -1;
 			}
 		}
 

@@ -15,6 +15,8 @@
 
   "license": "GPLv3",
 
+  "entrypoints":{"main":["io.github.nuclearfarts.chunkyeet.Entrypoint"]},
+
   "environment": "*",
   "mixins": [
     "chunkyeet.mixins.json"

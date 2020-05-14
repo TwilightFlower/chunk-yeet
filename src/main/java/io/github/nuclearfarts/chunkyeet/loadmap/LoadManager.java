@@ -91,6 +91,22 @@ public class LoadManager {
 		}
 		return false;
 	}
+	
+	public int getMinDistFromSource(long pos) {
+		Set<LoadMarker> markers;
+		if ((markers = map.get(pos)) != null) {
+			int min = Integer.MAX_VALUE;
+			for(LoadMarker marker : markers) {
+				int i;
+				if((i = marker.distanceFromSource(pos)) < min) {
+					min = i;
+				}
+			}
+			return min;
+		} else {
+			return 0;
+		}
+	}
 
 	public Stream<ServerPlayerEntity> getPlayersWatching(long pos) {
 		Set<LoadMarker> markers;
